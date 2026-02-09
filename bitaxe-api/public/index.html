@@ -1,32 +1,288 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Hello, World!</title>
-	</head>
-	<body>
-		<h1 id="heading"></h1>
-		<p>This page comes from a static asset stored at `public/index.html` as configured in `wrangler.jsonc`.</p>
-		<button id="button" type="button">Fetch a random UUID</button>
-		<output id="random" for="button"></output>
-		<script>
-			fetch('/message')
-				.then((resp) => resp.text())
-				.then((text) => {
-					const h1 = document.getElementById('heading');
-					h1.textContent = text;
-				});
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bitaxe API Endpoint Tests</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f6f8;
+        --panel: #ffffff;
+        --border: #d7dde4;
+        --text: #1d2733;
+        --muted: #4c5d70;
+        --accent: #0a66c2;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.45 "Segoe UI", Tahoma, sans-serif;
+      }
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        display: grid;
+        gap: 14px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+      }
+      h1 {
+        margin: 0 0 6px 0;
+        font-size: 22px;
+      }
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 16px;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .row {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+      label {
+        display: grid;
+        gap: 4px;
+        color: var(--muted);
+      }
+      input,
+      button,
+      textarea {
+        font: inherit;
+      }
+      input,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px;
+      }
+      textarea {
+        min-height: 200px;
+        resize: vertical;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      button {
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 12px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      pre {
+        margin: 0;
+        padding: 12px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: #0e1720;
+        color: #dce7f4;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .status {
+        color: var(--muted);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Bitaxe API Endpoint Tests</h1>
+        <p>Manual smoke tests for <code>/ingest</code>, <code>/latest</code>, and <code>/range</code>.</p>
+      </section>
 
-			const button = document.getElementById("button");
-			button.addEventListener("click", () => {
-				fetch('/random')
-					.then((resp) => resp.text())
-					.then((text) => {
-						const random = document.getElementById('random');
-						random.textContent = text;
-					});
-			});
-		</script>
-	</body>
+      <section class="card">
+        <h2>Request Settings</h2>
+        <div class="row">
+          <label>
+            Base URL
+            <input id="baseUrl" type="text" />
+          </label>
+          <label>
+            Miner ID
+            <input id="minerId" type="text" value="test-miner-1" />
+          </label>
+          <label>
+            Ingest Token
+            <input id="token" type="text" placeholder="Required for /ingest" />
+          </label>
+          <label>
+            Range Hours
+            <input id="hours" type="number" min="1" max="2160" value="24" />
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Ingest Payload (JSON)</h2>
+        <textarea id="payload"></textarea>
+        <div class="actions">
+          <button id="fillPayload" type="button">Fill Example Payload</button>
+          <button id="testIngest" type="button">POST /ingest</button>
+          <button id="testLatest" type="button">GET /latest</button>
+          <button id="testRange" type="button">GET /range</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Response</h2>
+        <div id="status" class="status">No request sent yet.</div>
+        <pre id="output"></pre>
+      </section>
+    </main>
+
+    <script>
+      const el = {
+        baseUrl: document.getElementById("baseUrl"),
+        minerId: document.getElementById("minerId"),
+        token: document.getElementById("token"),
+        hours: document.getElementById("hours"),
+        payload: document.getElementById("payload"),
+        status: document.getElementById("status"),
+        output: document.getElementById("output"),
+        fillPayload: document.getElementById("fillPayload"),
+        testIngest: document.getElementById("testIngest"),
+        testLatest: document.getElementById("testLatest"),
+        testRange: document.getElementById("testRange"),
+      };
+
+      el.baseUrl.value = window.location.origin;
+      fillExamplePayload();
+
+      el.fillPayload.addEventListener("click", fillExamplePayload);
+      el.testIngest.addEventListener("click", testIngest);
+      el.testLatest.addEventListener("click", testLatest);
+      el.testRange.addEventListener("click", testRange);
+
+      function fillExamplePayload() {
+        const now = Math.floor(Date.now() / 1000);
+        const miner = getMinerId();
+        const sample = {
+          ts: now,
+          miner_id: miner,
+          temp: 57.5,
+          vrTemp: 61.2,
+          power: 15.8,
+          voltage: 5.1,
+          current: 3.1,
+          hashRate: 640.4,
+          hashRate_1m: 635.2,
+          hashRate_10m: 628.9,
+          hashRate_1h: 620.3,
+          expectedHashrate: 700,
+          fanspeed: 63,
+          fanrpm: 4630,
+          frequency: 540,
+          coreVoltageActual: 1100,
+          errorPercentage: 0.23,
+          sharesAccepted: 1024,
+          sharesRejected: 4,
+          isUsingFallbackStratum: 0,
+          responseTime: 121.4,
+          uptimeSeconds: 86400,
+          blockHeight: 883000,
+          version: "v2.4.0",
+          bestDiff: 312000,
+          bestSessionDiff: 98000
+        };
+        el.payload.value = JSON.stringify(sample, null, 2);
+      }
+
+      function getBaseUrl() {
+        return (el.baseUrl.value || "").trim().replace(/\/+$/, "");
+      }
+
+      function getMinerId() {
+        return (el.minerId.value || "").trim();
+      }
+
+      function getHours() {
+        const n = Number.parseInt(el.hours.value, 10);
+        if (!Number.isFinite(n) || n < 1) return 24;
+        return n;
+      }
+
+      async function callApi(name, url, options) {
+        el.status.textContent = `${name}: sending request...`;
+        el.output.textContent = "";
+        const started = performance.now();
+        try {
+          const resp = await fetch(url, options);
+          const elapsed = Math.round(performance.now() - started);
+          const text = await resp.text();
+          let parsed = text;
+          try {
+            parsed = JSON.parse(text);
+          } catch (_) {}
+          el.status.textContent = `${name}: ${resp.status} ${resp.statusText} (${elapsed}ms)`;
+          el.output.textContent =
+            typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
+        } catch (err) {
+          el.status.textContent = `${name}: request failed`;
+          el.output.textContent = String(err);
+        }
+      }
+
+      async function testIngest() {
+        const token = (el.token.value || "").trim();
+        if (!token) {
+          el.status.textContent = "POST /ingest: token is required";
+          return;
+        }
+
+        let payload;
+        try {
+          payload = JSON.parse(el.payload.value);
+        } catch (err) {
+          el.status.textContent = "POST /ingest: payload must be valid JSON";
+          el.output.textContent = String(err);
+          return;
+        }
+
+        const miner = getMinerId();
+        if (!payload.miner_id) payload.miner_id = miner;
+
+        const url = `${getBaseUrl()}/ingest`;
+        await callApi("POST /ingest", url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      async function testLatest() {
+        const miner = encodeURIComponent(getMinerId());
+        const url = `${getBaseUrl()}/latest?miner_id=${miner}`;
+        await callApi("GET /latest", url, { method: "GET" });
+      }
+
+      async function testRange() {
+        const miner = encodeURIComponent(getMinerId());
+        const hours = encodeURIComponent(String(getHours()));
+        const url = `${getBaseUrl()}/range?miner_id=${miner}&hours=${hours}`;
+        await callApi("GET /range", url, { method: "GET" });
+      }
+    </script>
+  </body>
 </html>
